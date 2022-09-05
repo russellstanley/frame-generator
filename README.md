@@ -2,7 +2,8 @@
 
 ### Build Instructions
 
-```cmake .
+```
+ cmake .
  make -j2 -s 
  sudo make install
 ```
