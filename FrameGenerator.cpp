@@ -1,12 +1,36 @@
 #include <dv-sdk/module.hpp>
 #include <opencv2/imgproc.hpp>
 
+typedef cv::Point3_<uint8_t> Pixel;
+
+struct Operator
+{
+	void operator()(Pixel &pixel, const int *position)
+	{
+		if (pixel.x != 0)
+		{
+			pixel.x--;
+		}
+
+		if (pixel.y != 0)
+		{
+			pixel.y--;
+		}
+
+		if (pixel.z != 0)
+		{
+			pixel.z--;
+		}
+	}
+};
+
 class FrameGenerator : public dv::ModuleBase
 {
 private:
 	cv::Size inputSize;
 	cv::Vec3b onColor;
 	cv::Vec3b offColor;
+	cv::Mat outFrame = cv::Mat::zeros(inputSize, CV_8UC3);
 
 public:
 	static void initInputs(dv::InputDefinitionList &in)
@@ -51,7 +75,6 @@ public:
 	void run() override
 	{
 		auto events = inputs.getEventInput("events").events();
-		cv::Mat outFrame = cv::Mat::zeros(inputSize, CV_8UC3);
 
 		for (const auto &event : events)
 		{
@@ -59,12 +82,9 @@ public:
 			{
 				outFrame.at<cv::Vec3b>(event.y(), event.x()) = onColor;
 			}
-			else
-			{
-				outFrame.at<cv::Vec3b>(event.y(), event.x()) = offColor;
-			}
 		}
 
+		outFrame.forEach<Pixel>(Operator());
 		outputs.getFrameOutput("frames") << outFrame << dv::commit;
 	};
 };
