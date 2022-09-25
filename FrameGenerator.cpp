@@ -1,15 +1,17 @@
 #include <dv-sdk/module.hpp>
+#include <dv-sdk/processing/frame.hpp>
 #include <opencv2/imgproc.hpp>
 
 class FrameGenerator : public dv::ModuleBase
 {
 private:
 	cv::Size inputSize;
-	cv::Vec3b onColor;
-	cv::Vec3b offColor;
+	dv::TimeSurface timeSurface;
+	cv::Mat outFrame;
 
 public:
-	static void initInputs(dv::InputDefinitionList &in)
+	static void
+	initInputs(dv::InputDefinitionList &in)
 	{
 		in.addEventInput("events");
 	}
@@ -26,44 +28,29 @@ public:
 
 	static void initConfigOptions(dv::RuntimeConfig &config)
 	{
-		config.add("red", dv::ConfigOption::intOption("Value of the red color component", 255, 0, 255));
-		config.add("green", dv::ConfigOption::intOption("Value of the green color component", 255, 0, 255));
-		config.add("blue", dv::ConfigOption::intOption("Value of the blue color component", 255, 0, 255));
-
-		config.setPriorityOptions({"red", "green", "blue"});
+		config.add("R", dv::ConfigOption::intOption("R", 32, 0, 32));
+		config.add("Lookback", dv::ConfigOption::intOption("Time to look back", 100, 100, 100000));
+		config.setPriorityOptions({"R"});
 	}
 
 	FrameGenerator()
 	{
 		outputs.getFrameOutput("frames").setup(inputs.getEventInput("events"));
 		inputSize = inputs.getEventInput("events").size();
+		timeSurface = dv::TimeSurface(inputSize);
 	}
 
 	void configUpdate() override
 	{
-		onColor = cv::Vec3b(static_cast<uint8_t>(config.getInt("blue")), static_cast<uint8_t>(config.getInt("green")),
-							static_cast<uint8_t>(config.getInt("red")));
-
-		offColor = cv::Vec3b(255 - static_cast<uint8_t>(config.getInt("blue")), 255 - static_cast<uint8_t>(config.getInt("green")),
-							 255 - static_cast<uint8_t>(config.getInt("red")));
 	}
 
 	void run() override
 	{
-		auto events = inputs.getEventInput("events").events();
 		cv::Mat outFrame = cv::Mat::zeros(inputSize, CV_8UC3);
 
-		for (const auto &event : events)
-		{
-			if (event.polarity())
-			{
-				outFrame.at<cv::Vec3b>(event.y(), event.x()) = onColor;
-			}
-			else
-			{
-				outFrame.at<cv::Vec3b>(event.y(), event.x()) = offColor;
-			}
-		}
+		timeSurface.accept(inputs.getEventInput("events").events());
+
+		outFrame = timeSurface.getOCVMatScaled(config.getInt("Lookback"));
 
 		outputs.getFrameOutput("frames") << outFrame << dv::commit;
 	};
