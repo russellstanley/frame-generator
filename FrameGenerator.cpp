@@ -7,6 +7,8 @@
 
 #include <vector>
 
+int64_t ONE_SECOND = 1e6; // microseconds
+
 /**
  * An average time surface, as described by TODO: <Link>
  */
@@ -16,8 +18,8 @@ public:
 	int16_t R = 32; // Neighborhood size.
 	int16_t halfR = 16;
 
-	float tempWindow = 0.1;
-	float tau = 0.5;
+	int64_t tempWindow = 0.1 * ONE_SECOND; // Temporal Window(microseconds)
+	float tau = 0.5;					   // Decay constant
 
 	int16_t K = 32; // Cell size.
 	int16_t cellWidth;
@@ -74,8 +76,45 @@ public:
 		{
 			polarityIndex = 0;
 		}
-
 		cellMemory.at(cell).at(polarityIndex).push_back(event);
+
+		cellMemory.at(cell).at(polarityIndex) = filterMemory(cellMemory.at(cell).at(polarityIndex), event.timestamp());
+	}
+
+	// Finds all events between the given time minus the length of the teporal window.
+	dv::EventStore filterMemory(dv::EventStore memory, int64_t time)
+	{
+		int64_t limit = time - tempWindow;
+		bool found = false;
+
+		int right = memory.size() - 1;
+		int left = 0;
+
+		int midpoint = 0;
+		int position = 0;
+
+		// Use binary search to find the position.
+		while (left <= right && !found)
+		{
+			midpoint = (left + right) / 2;
+			if (memory.at(midpoint).timestamp() == limit)
+			{
+				position = midpoint;
+				found = true;
+			}
+			else
+			{
+				if (limit <= memory.at(midpoint).timestamp())
+				{
+					right = midpoint - 1;
+				}
+				else
+				{
+					left = midpoint + 1;
+				}
+			}
+		}
+		return memory.slice(position, memory.size() - position);
 	}
 
 	void reset()
