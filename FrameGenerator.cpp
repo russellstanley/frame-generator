@@ -6,6 +6,7 @@
 #include <dv-sdk/processing/event.hpp>
 
 #include <vector>
+#include <cmath>
 
 int64_t ONE_SECOND = 1e6; // microseconds
 
@@ -15,18 +16,19 @@ int64_t ONE_SECOND = 1e6; // microseconds
 class AverageTimeSurface : public dv::TimeSurfaceBase<dv::EventStore>
 {
 public:
-	int16_t R = 32; // Neighborhood size.
-	int16_t halfR = 16;
+	int16_t R = 8; // Neighborhood size.
+	int16_t halfR = 4;
 
-	int64_t tempWindow = 0.1 * ONE_SECOND; // Temporal Window(microseconds)
-	float tau = 0.5;					   // Decay constant
+	int64_t tempWindow = 0.1 * ONE_SECOND; // Temporal Window (microseconds)
+	int64_t tau = 0.5 * ONE_SECOND;		   // Decay constant
 
-	int16_t K = 32; // Cell size.
+	int16_t K = 8; // Cell size.
 	int16_t cellWidth;
 	int16_t cellHeight;
 	int16_t nCells;
 
 	cv::Mat cellLookup;
+	cv::Mat timeSurface;
 	std::vector<std::vector<dv::EventStore>> cellMemory;
 
 	// Constructs a new, empty TimeSurface without any data allocated to it.
@@ -78,7 +80,30 @@ public:
 		}
 		cellMemory.at(cell).at(polarityIndex).push_back(event);
 
-		cellMemory.at(cell).at(polarityIndex) = filterMemory(cellMemory.at(cell).at(polarityIndex), event.timestamp());
+		// cellMemory.at(cell).at(polarityIndex) = filterMemory(cellMemory.at(cell).at(polarityIndex), event.timestamp());
+
+		timeSurface = localTimeSurface(event, cellMemory.at(cell).at(polarityIndex));
+	}
+
+	cv::Mat localTimeSurface(dv::Event event_i, dv::EventStore memory)
+	{
+		cv::Size neighborhood(2 * R + 1, 2 * R + 1);
+		cv::Mat localTimeSurface = cv::Mat::zeros(neighborhood, CV_8U);
+
+		int64_t t_i = event_i.timestamp();
+
+		for (const dv::Event &event_j : memory)
+		{
+			int64_t delta = t_i - event_j.timestamp();
+			uchar value = std::exp(-delta / tau);
+
+			int16_t shifted_y = event_j.y() - event_i.y() - R;
+			int16_t shifted_x = event_j.x() - event_i.x() - R;
+
+			localTimeSurface.at<uchar>(shifted_y, shifted_x) += value;
+		}
+
+		return localTimeSurface;
 	}
 
 	// Finds all events between the given time minus the length of the teporal window.
@@ -185,7 +210,8 @@ public:
 
 		// outFrame = averageTimeSurface.getOCVMatScaled();
 
-		outputs.getFrameOutput("frames") << averageTimeSurface.cellLookup << dv::commit;
+		log.debug << averageTimeSurface.cellMemory.at(128).at(1).size() << dv::logEnd;
+		outputs.getFrameOutput("frames") << averageTimeSurface.timeSurface << dv::commit;
 	};
 };
 
