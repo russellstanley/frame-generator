@@ -5,29 +5,50 @@
 
 #include <dv-sdk/processing/event.hpp>
 
+#include <vector>
+
 /**
  * An average time surface, as described by TODO: <Link>
  */
 class AverageTimeSurface : public dv::TimeSurfaceBase<dv::EventStore>
 {
-private:
-	static constexpr int16_t DEFAULT_PATCH_WIDTH{10};
-	int16_t mHalfPatchWidth;
-
 public:
+	int16_t R = 32; // Neighborhood size.
+	int16_t halfR = 16;
+
+	float tempWindow = 0.1;
+	float tau = 0.5;
+
+	int16_t K = 32; // Cell size.
+	int16_t cellWidth;
+	int16_t cellHeight;
+	int16_t nCells;
+
+	cv::Mat cellLookup;
+	std::vector<std::vector<dv::EventStore>> cellMemory;
+
 	// Constructs a new, empty TimeSurface without any data allocated to it.
 	AverageTimeSurface() = default;
 
 	// Creates a new AverageTimeSurface of the given size.
 	explicit AverageTimeSurface(const cv::Size &shape) : dv::TimeSurfaceBase<dv::EventStore>(shape)
 	{
-		setPatchWidth(DEFAULT_PATCH_WIDTH);
-	}
+		cellWidth = shape.width / K;
+		cellHeight = shape.height / K;
+		nCells = cellHeight * cellWidth;
 
-	// Set new patch width. The width of the patch surrounding arriving events which will be influenced by said events.
-	void setPatchWidth(const int16_t patchWidth)
-	{
-		mHalfPatchWidth = patchWidth / 2;
+		cellLookup = cv::Mat::zeros(shape, CV_8U);
+		for (int i = 0; i < shape.width; i++)
+		{
+			for (int j = 0; j < shape.height; j++)
+			{
+				uchar pixel_row = i / K;
+				uchar pixel_col = j / K;
+
+				cellLookup.at<uchar>(i, j) = (pixel_row * cellWidth + pixel_col);
+			}
+		}
+		reset();
 	}
 
 	// Inserts the event store into the time surface.
@@ -42,24 +63,36 @@ public:
 	// Inserts the event into the time surface.
 	void accept(const typename dv::EventStore::iterator::value_type &event) override
 	{
-		const auto rowStart = std::max(0, event.y() - mHalfPatchWidth);
-		const auto rowEnd = std::min(AverageTimeSurface::rows() - 1, event.y() + mHalfPatchWidth);
-		const auto colStart = std::max(0, event.x() - mHalfPatchWidth);
-		const auto colEnd = std::min(AverageTimeSurface::cols() - 1, event.x() + mHalfPatchWidth);
+		int cell = cellLookup.at<uchar>(event.y(), event.x());
+		int polarityIndex;
 
-		auto &currentPixel = AverageTimeSurface::at(event.y(), event.x());
-
-		for (int16_t row = rowStart; row <= rowEnd; row++)
+		if (event.polarity())
 		{
-			for (int16_t col = colStart; col <= colEnd; col++)
-			{
-				if (AverageTimeSurface::at(row, col) > currentPixel)
-				{
-					AverageTimeSurface::at(row, col) -= 1;
-				}
-			}
+			polarityIndex = 1;
 		}
-		currentPixel = 255;
+		else
+		{
+			polarityIndex = 0;
+		}
+
+		cellMemory.at(cell).at(polarityIndex).push_back(event);
+	}
+
+	void reset()
+	{
+		cellMemory.clear();
+
+		for (int i = 0; i < nCells; i++)
+		{
+			dv::EventStore on_memory;
+			dv::EventStore off_memory;
+			std::vector<dv::EventStore> cell;
+
+			cell.push_back(on_memory);
+			cell.push_back(off_memory);
+
+			cellMemory.push_back(cell);
+		}
 	}
 };
 
@@ -107,13 +140,13 @@ public:
 
 	void run() override
 	{
-		cv::Mat outFrame = cv::Mat::zeros(inputSize, CV_8UC3);
+		// cv::Mat outFrame = cv::Mat::zeros(inputSize, CV_8UC3);
 
 		averageTimeSurface.accept(inputs.getEventInput("events").events());
 
-		outFrame = averageTimeSurface.getOCVMatScaled();
+		// outFrame = averageTimeSurface.getOCVMatScaled();
 
-		outputs.getFrameOutput("frames") << outFrame << dv::commit;
+		outputs.getFrameOutput("frames") << averageTimeSurface.cellLookup << dv::commit;
 	};
 };
 
