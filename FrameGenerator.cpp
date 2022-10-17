@@ -19,17 +19,18 @@ public:
 	int16_t R = 8; // Neighborhood size.
 	int16_t halfR = 4;
 
-	int64_t tempWindow = 0.1 * ONE_SECOND; // Temporal Window (microseconds)
-	int64_t tau = 0.5 * ONE_SECOND;		   // Decay constant
-
 	int16_t K = 8; // Cell size.
 	int16_t cellWidth;
 	int16_t cellHeight;
 	int16_t nCells;
-
 	cv::Mat cellLookup;
-	cv::Mat timeSurface;
-	std::vector<std::vector<dv::EventStore>> cellMemory;
+	std::vector<std::vector<dv::EventStore>> cellMemory; // Event store for each cell and polarity.
+
+	int64_t tempWindow = 0.1 * ONE_SECOND; // Temporal Window (microseconds).
+	double tau = 0.5;					   // Decay constant.
+
+	cv::Mat timeSurface; // Holds the local time surface.
+	cv::Size neighborhood;
 
 	// Constructs a new, empty TimeSurface without any data allocated to it.
 	AverageTimeSurface() = default;
@@ -42,6 +43,9 @@ public:
 		nCells = cellHeight * cellWidth;
 
 		cellLookup = cv::Mat::zeros(shape, CV_8U);
+		neighborhood = cv::Size(2 * R + 1, 2 * R + 1);
+
+		// Initialize the cell lookup table.
 		for (int i = 0; i < shape.width; i++)
 		{
 			for (int j = 0; j < shape.height; j++)
@@ -52,6 +56,8 @@ public:
 				cellLookup.at<uchar>(i, j) = (pixel_row * cellWidth + pixel_col);
 			}
 		}
+
+		// Initialize the cell memory table.
 		reset();
 	}
 
@@ -78,23 +84,23 @@ public:
 		{
 			polarityIndex = 0;
 		}
+
+		// Add the new event to memory.
 		cellMemory.at(cell).at(polarityIndex).push_back(event);
 
-		// cellMemory.at(cell).at(polarityIndex) = filterMemory(cellMemory.at(cell).at(polarityIndex), event.timestamp());
+		// Filter the memory to remove events outside the temporal window.
+		cellMemory.at(cell).at(polarityIndex) = filterMemory(cellMemory.at(cell).at(polarityIndex), event.timestamp());
 
 		timeSurface = localTimeSurface(event, cellMemory.at(cell).at(polarityIndex));
 	}
 
 	cv::Mat localTimeSurface(dv::Event event_i, dv::EventStore memory)
 	{
-		cv::Size neighborhood(2 * R + 1, 2 * R + 1);
 		cv::Mat localTimeSurface = cv::Mat::zeros(neighborhood, CV_8U);
-
-		int64_t t_i = event_i.timestamp();
 
 		for (const dv::Event &event_j : memory)
 		{
-			int64_t delta = t_i - event_j.timestamp();
+			double delta = (event_i.timestamp() - event_j.timestamp()) / ONE_SECOND;
 			uchar value = std::exp(-delta / tau);
 
 			int16_t shifted_y = event_j.y() - event_i.y() - R;
@@ -102,44 +108,16 @@ public:
 
 			localTimeSurface.at<uchar>(shifted_y, shifted_x) += value;
 		}
-
 		return localTimeSurface;
 	}
 
 	// Finds all events between the given time minus the length of the teporal window.
 	dv::EventStore filterMemory(dv::EventStore memory, int64_t time)
 	{
-		int64_t limit = time - tempWindow;
-		bool found = false;
+		int64_t timeLimit = memory.getHighestTime() - tempWindow;
 
-		int right = memory.size() - 1;
-		int left = 0;
-
-		int midpoint = 0;
-		int position = 0;
-
-		// Use binary search to find the position.
-		while (left <= right && !found)
-		{
-			midpoint = (left + right) / 2;
-			if (memory.at(midpoint).timestamp() == limit)
-			{
-				position = midpoint;
-				found = true;
-			}
-			else
-			{
-				if (limit <= memory.at(midpoint).timestamp())
-				{
-					right = midpoint - 1;
-				}
-				else
-				{
-					left = midpoint + 1;
-				}
-			}
-		}
-		return memory.slice(position, memory.size() - position);
+		// Return all events which occur after the timestamp.
+		return memory.sliceTime(timeLimit);
 	}
 
 	void reset()
@@ -204,13 +182,8 @@ public:
 
 	void run() override
 	{
-		// cv::Mat outFrame = cv::Mat::zeros(inputSize, CV_8UC3);
-
 		averageTimeSurface.accept(inputs.getEventInput("events").events());
 
-		// outFrame = averageTimeSurface.getOCVMatScaled();
-
-		log.debug << averageTimeSurface.cellMemory.at(128).at(1).size() << dv::logEnd;
 		outputs.getFrameOutput("frames") << averageTimeSurface.timeSurface << dv::commit;
 	};
 };
