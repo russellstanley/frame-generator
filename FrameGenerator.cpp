@@ -2,6 +2,7 @@
 #include <dv-sdk/processing/frame.hpp>
 #include <dv-sdk/processing/core.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
 
 #include <dv-sdk/processing/event.hpp>
@@ -212,7 +213,22 @@ public:
 	{
 		averageTimeSurface.accept(inputs.getEventInput("events").events());
 
-		outputs.getFrameOutput("frames") << averageTimeSurface.histograms.at(120).at(1) << dv::commit;
+		cv::Mat rows[4];
+
+		for (int i = 0; i < 4; i++)
+		{
+			cv::Mat row[4];
+			for (int j = 0; j < 4; j++)
+			{
+				row[j] = averageTimeSurface.histograms.at((4 * i) + j).at(1);
+			}
+			cv::hconcat(row, 4, rows[i]);
+		}
+
+		cv::Mat outFrame;
+		cv::vconcat(rows, 4, outFrame);
+
+		outputs.getFrameOutput("frames") << outFrame << dv::commit;
 	};
 };
 
