@@ -2,6 +2,7 @@
 #include <dv-sdk/processing/frame.hpp>
 #include <dv-sdk/processing/core.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/opencv.hpp>
 
 #include <dv-sdk/processing/event.hpp>
 
@@ -31,6 +32,9 @@ public:
 
 	cv::Mat timeSurface; // Holds the local time surface.
 	cv::Size neighborhood;
+	std::vector<std::vector<cv::Mat>> histograms; // Event store for each cell and polarity.
+
+	cv::Mat ones;
 
 	// Constructs a new, empty TimeSurface without any data allocated to it.
 	AverageTimeSurface() = default;
@@ -44,6 +48,7 @@ public:
 
 		cellLookup = cv::Mat::zeros(shape, CV_8U);
 		neighborhood = cv::Size(2 * R + 1, 2 * R + 1);
+		ones = cv::Mat::ones(neighborhood, CV_8U);
 
 		// Initialize the cell lookup table.
 		for (int i = 0; i < shape.width; i++)
@@ -57,7 +62,7 @@ public:
 			}
 		}
 
-		// Initialize the cell memory table.
+		// Initialize the cell memory table and histograms.
 		reset();
 	}
 
@@ -73,8 +78,8 @@ public:
 	// Inserts the event into the time surface.
 	void accept(const typename dv::EventStore::iterator::value_type &event) override
 	{
+		int polarityIndex = 0;
 		int cell = cellLookup.at<uchar>(event.y(), event.x());
-		int polarityIndex;
 
 		if (event.polarity())
 		{
@@ -92,6 +97,11 @@ public:
 		cellMemory.at(cell).at(polarityIndex) = filterMemory(cellMemory.at(cell).at(polarityIndex), event.timestamp());
 
 		timeSurface = localTimeSurface(event, cellMemory.at(cell).at(polarityIndex));
+
+		cv::Mat histogram;
+		histograms.at(cell).at(polarityIndex).copyTo(histogram);
+
+		cv::add(histogram, timeSurface, histograms.at(cell).at(polarityIndex));
 	}
 
 	cv::Mat localTimeSurface(dv::Event event_i, dv::EventStore memory)
@@ -123,17 +133,35 @@ public:
 	void reset()
 	{
 		cellMemory.clear();
+		histograms.clear();
 
+		// Initialize the cell event memory.
 		for (int i = 0; i < nCells; i++)
 		{
-			dv::EventStore on_memory;
-			dv::EventStore off_memory;
-			std::vector<dv::EventStore> cell;
+			// Create event storage for 'on' and 'off' events
+			dv::EventStore onMemory;
+			dv::EventStore offMemory;
+			std::vector<dv::EventStore> memoryCell;
 
-			cell.push_back(on_memory);
-			cell.push_back(off_memory);
+			memoryCell.push_back(onMemory);
+			memoryCell.push_back(offMemory);
 
-			cellMemory.push_back(cell);
+			cellMemory.push_back(memoryCell);
+		}
+
+		// Initialize the cell histogram storage.
+		for (int i = 0; i < nCells; i++)
+		{
+			// Create a vector of images for 'on' and 'off' histograms.
+			cv::Mat onHistogram = cv::Mat::zeros(neighborhood, CV_8U);
+			cv::Mat offHistogram = cv::Mat::zeros(neighborhood, CV_8U);
+
+			std::vector<cv::Mat> histogramCell;
+
+			histogramCell.push_back(onHistogram);
+			histogramCell.push_back(offHistogram);
+
+			histograms.push_back(histogramCell);
 		}
 	}
 };
@@ -184,7 +212,7 @@ public:
 	{
 		averageTimeSurface.accept(inputs.getEventInput("events").events());
 
-		outputs.getFrameOutput("frames") << averageTimeSurface.timeSurface << dv::commit;
+		outputs.getFrameOutput("frames") << averageTimeSurface.histograms.at(120).at(1) << dv::commit;
 	};
 };
 
