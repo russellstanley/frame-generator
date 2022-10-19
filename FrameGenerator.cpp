@@ -35,8 +35,6 @@ public:
 	cv::Size neighborhood;
 	std::vector<std::vector<cv::Mat>> histograms; // Event store for each cell and polarity.
 
-	cv::Mat ones;
-
 	// Constructs a new, empty TimeSurface without any data allocated to it.
 	AverageTimeSurface() = default;
 
@@ -49,7 +47,6 @@ public:
 
 		cellLookup = cv::Mat::zeros(shape, CV_8U);
 		neighborhood = cv::Size(2 * R + 1, 2 * R + 1);
-		ones = cv::Mat::ones(neighborhood, CV_8U);
 
 		// Initialize the cell lookup table.
 		for (int i = 0; i < shape.width; i++)
@@ -129,6 +126,18 @@ public:
 
 		// Return all events which occur after the timestamp.
 		return memory.sliceTime(timeLimit);
+	}
+
+	void normalise()
+	{
+		for (int i = 0; i < histograms.size(); i++)
+		{
+			for (int j = 0; j < histograms.at(i).size(); j++)
+			{
+				// TODO: Fix this
+				histograms.at(i).at(j) = histograms.at(i).at(j) / (cellMemory.at(i).at(j).size() + 0.1);
+			}
+		}
 	}
 
 	void reset()
