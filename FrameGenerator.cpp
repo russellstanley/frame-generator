@@ -19,7 +19,7 @@ class AverageTimeSurface : public dv::TimeSurfaceBase<dv::EventStore>
 {
 public:
 	int16_t R = 8; // Neighborhood size.
-	int16_t halfR = 4;
+	cv::Size neighborhood;
 
 	int16_t K = 8; // Cell size.
 	int16_t cellWidth;
@@ -31,9 +31,10 @@ public:
 	int64_t tempWindow = 0.1 * ONE_SECOND; // Temporal Window (microseconds).
 	double tau = 0.5;					   // Decay constant.
 
-	cv::Mat timeSurface; // Holds the local time surface.
-	cv::Size neighborhood;
-	std::vector<std::vector<cv::Mat>> histograms; // Event store for each cell and polarity.
+	int windowSize = 30;
+	cv::Mat timeSurface;									   // Holds the current local time surface.
+	std::vector<std::vector<std::vector<cv::Mat>>> histograms; // Storage of the relevant local time surfaces.
+	std::vector<std::vector<cv::Mat>> hats;					   // Hisogram of average time surfaces.
 
 	// Constructs a new, empty TimeSurface without any data allocated to it.
 	AverageTimeSurface() = default;
@@ -41,14 +42,15 @@ public:
 	// Creates a new AverageTimeSurface of the given size.
 	explicit AverageTimeSurface(const cv::Size &shape) : dv::TimeSurfaceBase<dv::EventStore>(shape)
 	{
+		neighborhood = cv::Size(2 * R + 1, 2 * R + 1);
+
+		// Initialize the cell lookup table.
 		cellWidth = shape.width / K;
 		cellHeight = shape.height / K;
 		nCells = cellHeight * cellWidth;
 
 		cellLookup = cv::Mat::zeros(shape, CV_8U);
-		neighborhood = cv::Size(2 * R + 1, 2 * R + 1);
 
-		// Initialize the cell lookup table.
 		for (int i = 0; i < shape.width; i++)
 		{
 			for (int j = 0; j < shape.height; j++)
@@ -94,12 +96,21 @@ public:
 		// Filter the memory to remove events outside the temporal window.
 		cellMemory.at(cell).at(polarityIndex) = filterMemory(cellMemory.at(cell).at(polarityIndex), event.timestamp());
 
+		// Calulate the time surface for the given event.
 		timeSurface = localTimeSurface(event, cellMemory.at(cell).at(polarityIndex));
+		histograms.at(cell).at(polarityIndex).push_back(timeSurface);
 
-		cv::Mat histogram;
-		histograms.at(cell).at(polarityIndex).copyTo(histogram);
+		if (histograms.at(cell).at(polarityIndex).size() > windowSize)
+		{
+			cv::Mat subtract = histograms.at(cell).at(polarityIndex).at(0);
+			histograms.at(cell).at(polarityIndex).erase(histograms.at(cell).at(polarityIndex).begin());
 
-		cv::add(histogram, timeSurface, histograms.at(cell).at(polarityIndex));
+			// Subtract old time surface which is now outside the rolling window.
+			cv::addWeighted(hats.at(cell).at(polarityIndex), 1.0, subtract, -1.0, 0.0, hats.at(cell).at(polarityIndex));
+		}
+
+		// Add the new time surface.
+		cv::add(hats.at(cell).at(polarityIndex), timeSurface, hats.at(cell).at(polarityIndex));
 	}
 
 	cv::Mat localTimeSurface(dv::Event event_i, dv::EventStore memory)
@@ -128,18 +139,6 @@ public:
 		return memory.sliceTime(timeLimit);
 	}
 
-	void normalise()
-	{
-		for (int i = 0; i < histograms.size(); i++)
-		{
-			for (int j = 0; j < histograms.at(i).size(); j++)
-			{
-				// TODO: Fix this
-				histograms.at(i).at(j) = histograms.at(i).at(j) / (cellMemory.at(i).at(j).size() + 0.1);
-			}
-		}
-	}
-
 	void reset()
 	{
 		cellMemory.clear();
@@ -163,15 +162,30 @@ public:
 		for (int i = 0; i < nCells; i++)
 		{
 			// Create a vector of images for 'on' and 'off' histograms.
-			cv::Mat onHistogram = cv::Mat::zeros(neighborhood, CV_8U);
-			cv::Mat offHistogram = cv::Mat::zeros(neighborhood, CV_8U);
+			std::vector<cv::Mat> onHistogram;
+			std::vector<cv::Mat> offHistogram;
 
-			std::vector<cv::Mat> histogramCell;
+			std::vector<std::vector<cv::Mat>> histogramCell;
 
 			histogramCell.push_back(onHistogram);
 			histogramCell.push_back(offHistogram);
 
 			histograms.push_back(histogramCell);
+		}
+
+		// Initialize the HATS storage.
+		for (int i = 0; i < nCells; i++)
+		{
+			// Create a vector of images for 'on' and 'off' histograms.
+			cv::Mat onHistogram = cv::Mat::zeros(neighborhood, CV_8U);
+			cv::Mat offHistogram = cv::Mat::zeros(neighborhood, CV_8U);
+
+			std::vector<cv::Mat> hatsCell;
+
+			hatsCell.push_back(onHistogram);
+			hatsCell.push_back(offHistogram);
+
+			hats.push_back(hatsCell);
 		}
 	}
 };
@@ -234,7 +248,7 @@ public:
 			cv::Mat row[16];
 			for (int j = 0; j < 16; j++)
 			{
-				row[j] = averageTimeSurface.histograms.at((16 * i) + j).at(1);
+				row[j] = averageTimeSurface.hats.at((16 * i) + j).at(1);
 			}
 			cv::hconcat(row, 16, rows[i]);
 		}
