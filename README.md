@@ -4,7 +4,7 @@ This is a custom module for the DV software which can generate a Histogram of Av
 <img src="images/sample.png?raw=true" alt="Sample HATS Representation"/> </br>
 
 ## Build
-Follow the instruction on the [DV](https://inivation.gitlab.io/dv/dv-docs/docs/getting-ready-for-development/) website. Module can be build using the following.
+Follow the instruction on the [DV](https://inivation.gitlab.io/dv/dv-docs/docs/getting-ready-for-development/) website. Module can be built using the following.
 ```
  cmake .
  make -j2 -s 
