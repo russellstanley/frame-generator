@@ -114,8 +114,8 @@ public:
 			double delta = (event_i.timestamp() - event_j.timestamp()) / ONE_SECOND;
 			uchar value = std::exp(-delta / tau);
 
-			int16_t shifted_y = event_j.y() - event_i.y() - R;
-			int16_t shifted_x = event_j.x() - event_i.x() - R;
+			int16_t shifted_y = event_j.y() - (event_i.y() - R);
+			int16_t shifted_x = event_j.x() - (event_i.x() - R);
 
 			localTimeSurface.at<uchar>(shifted_y, shifted_x) += value;
 		}
@@ -173,6 +173,7 @@ private:
 	cv::Size inputSize;
 	cv::Mat outFrame;
 	AverageTimeSurface averageTimeSurface;
+	dv::EventStreamSlicer slicer;
 
 public:
 	static void
@@ -200,9 +201,13 @@ public:
 
 	FrameGenerator()
 	{
-		outputs.getFrameOutput("frames").setup(inputs.getEventInput("events"));
 		inputSize = inputs.getEventInput("events").size();
 		averageTimeSurface = AverageTimeSurface(inputSize);
+
+		int sizeX = averageTimeSurface.cellWidth * (2 * averageTimeSurface.R + 1);
+		int sizeY = averageTimeSurface.cellHeight * (2 * averageTimeSurface.R + 1);
+
+		outputs.getFrameOutput("frames").setup(sizeX, sizeY, "description");
 	}
 
 	void configUpdate() override
@@ -213,20 +218,20 @@ public:
 	{
 		averageTimeSurface.accept(inputs.getEventInput("events").events());
 
-		cv::Mat rows[4];
+		cv::Mat rows[16];
 
-		for (int i = 0; i < 4; i++)
+		for (int i = 0; i < 16; i++)
 		{
-			cv::Mat row[4];
-			for (int j = 0; j < 4; j++)
+			cv::Mat row[16];
+			for (int j = 0; j < 16; j++)
 			{
-				row[j] = averageTimeSurface.histograms.at((4 * i) + j).at(1);
+				row[j] = averageTimeSurface.histograms.at((16 * i) + j).at(1);
 			}
-			cv::hconcat(row, 4, rows[i]);
+			cv::hconcat(row, 16, rows[i]);
 		}
 
 		cv::Mat outFrame;
-		cv::vconcat(rows, 4, outFrame);
+		cv::vconcat(rows, 16, outFrame);
 
 		outputs.getFrameOutput("frames") << outFrame << dv::commit;
 	};
