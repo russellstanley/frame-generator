@@ -1,11 +1,11 @@
 #include <dv-sdk/module.hpp>
 #include <dv-sdk/processing/frame.hpp>
 #include <dv-sdk/processing/core.hpp>
+#include <dv-sdk/processing/event.hpp>
+
 #include <opencv2/imgproc.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
-
-#include <dv-sdk/processing/event.hpp>
 
 #include <vector>
 #include <cmath>
@@ -15,7 +15,7 @@ int64_t ONE_SECOND = 1e6; // microseconds
 /**
  * An average time surface, as described by TODO: <Link>
  */
-class AverageTimeSurface : public dv::TimeSurfaceBase<dv::EventStore>
+class HistogramAverageTimeSurface : public dv::TimeSurfaceBase<dv::EventStore>
 {
 public:
 	int16_t R = 8; // Neighborhood size.
@@ -37,10 +37,10 @@ public:
 	std::vector<std::vector<cv::Mat>> hats;					   // Hisogram of average time surfaces.
 
 	// Constructs a new, empty TimeSurface without any data allocated to it.
-	AverageTimeSurface() = default;
+	HistogramAverageTimeSurface() = default;
 
-	// Creates a new AverageTimeSurface of the given size.
-	explicit AverageTimeSurface(const cv::Size &shape) : dv::TimeSurfaceBase<dv::EventStore>(shape)
+	// Creates a new Histogram of Average Time Surface class with the given size.
+	explicit HistogramAverageTimeSurface(const cv::Size &shape) : dv::TimeSurfaceBase<dv::EventStore>(shape)
 	{
 		neighborhood = cv::Size(2 * R + 1, 2 * R + 1);
 
@@ -190,17 +190,14 @@ public:
 	}
 };
 
-class FrameGenerator : public dv::ModuleBase
+class HatsGenerator : public dv::ModuleBase
 {
 private:
-	cv::Size inputSize;
 	cv::Mat outFrame;
-	AverageTimeSurface averageTimeSurface;
-	dv::EventStreamSlicer slicer;
+	HistogramAverageTimeSurface hatsBase;
 
 public:
-	static void
-	initInputs(dv::InputDefinitionList &in)
+	static void initInputs(dv::InputDefinitionList &in)
 	{
 		in.addEventInput("events");
 	}
@@ -212,23 +209,22 @@ public:
 
 	static const char *initDescription()
 	{
-		return ("This module renders all events to frames");
+		return ("Renders incoming events as a Histogram of Average Time Surfaces");
 	}
 
 	static void initConfigOptions(dv::RuntimeConfig &config)
 	{
-		config.add("R", dv::ConfigOption::intOption("R", 32, 0, 32));
-		config.add("Lookback", dv::ConfigOption::intOption("Time to look back", 1, 0, 255));
-		config.setPriorityOptions({"R"});
+		config.add("WindowSize", dv::ConfigOption::intOption("Window Size", 30, 5, 100));
+		config.setPriorityOptions({"WindowSize"});
 	}
 
-	FrameGenerator()
+	HatsGenerator()
 	{
-		inputSize = inputs.getEventInput("events").size();
-		averageTimeSurface = AverageTimeSurface(inputSize);
+		cv::Size inputSize = inputs.getEventInput("events").size();
+		hatsBase = HistogramAverageTimeSurface(inputSize);
 
-		int sizeX = averageTimeSurface.cellWidth * (2 * averageTimeSurface.R + 1);
-		int sizeY = averageTimeSurface.cellHeight * (2 * averageTimeSurface.R + 1);
+		int sizeX = hatsBase.cellWidth * (2 * hatsBase.R + 1);
+		int sizeY = hatsBase.cellHeight * (2 * hatsBase.R + 1);
 
 		outputs.getFrameOutput("frames").setup(sizeX, sizeY, "description");
 	}
@@ -239,8 +235,9 @@ public:
 
 	void run() override
 	{
-		averageTimeSurface.accept(inputs.getEventInput("events").events());
+		hatsBase.accept(inputs.getEventInput("events").events());
 
+		// Stack each histogram into a single frame.
 		cv::Mat rows[16];
 
 		for (int i = 0; i < 16; i++)
@@ -248,7 +245,7 @@ public:
 			cv::Mat row[16];
 			for (int j = 0; j < 16; j++)
 			{
-				row[j] = averageTimeSurface.hats.at((16 * i) + j).at(1);
+				row[j] = hatsBase.hats.at((16 * i) + j).at(1);
 			}
 			cv::hconcat(row, 16, rows[i]);
 		}
@@ -256,8 +253,9 @@ public:
 		cv::Mat outFrame;
 		cv::vconcat(rows, 16, outFrame);
 
+		// Output the stacked frame.
 		outputs.getFrameOutput("frames") << outFrame << dv::commit;
 	};
 };
 
-registerModuleClass(FrameGenerator)
+registerModuleClass(HatsGenerator)
