@@ -13,7 +13,7 @@
 int64_t ONE_SECOND = 1e6; // microseconds
 
 /**
- * An average time surface, as described by TODO: <Link>
+ * An average time surface, as described by https://openaccess.thecvf.com/content_cvpr_2018/papers/Sironi_HATS_Histograms_of_CVPR_2018_paper.pdf
  */
 class HistogramAverageTimeSurface : public dv::TimeSurfaceBase<dv::EventStore>
 {
