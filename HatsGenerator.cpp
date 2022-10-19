@@ -214,6 +214,7 @@ public:
 
 	static void initConfigOptions(dv::RuntimeConfig &config)
 	{
+		// TODO: Implement window size variable.
 		config.add("WindowSize", dv::ConfigOption::intOption("Window Size", 30, 5, 100));
 		config.setPriorityOptions({"WindowSize"});
 	}
@@ -233,6 +234,8 @@ public:
 	{
 	}
 
+	// TODO: Handle both 'on' and 'off' events.
+	// TODO: Handle frame building in the HATS class.
 	void run() override
 	{
 		hatsBase.accept(inputs.getEventInput("events").events());
