@@ -256,8 +256,10 @@ public:
 		cv::Mat outFrame;
 		cv::vconcat(rows, 16, outFrame);
 
-		// Output the stacked frame.
-		outputs.getFrameOutput("frames") << outFrame << dv::commit;
+		auto frame = outputs.getFrameOutput("frames").frame();
+		frame.setMat(outFrame);
+		frame.setTimestamp(inputs.getEventInput("events").events().at(0).timestamp());
+		frame.commit();
 	};
 };
 
